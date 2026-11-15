@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-backdrop-extent"
+description = "Enables the set_backdrop_extent command without any pre-configured scope."
+commands.allow = ["set_backdrop_extent"]
+
+[[permission]]
+identifier = "deny-set-backdrop-extent"
+description = "Denies the set_backdrop_extent command without any pre-configured scope."
+commands.deny = ["set_backdrop_extent"]

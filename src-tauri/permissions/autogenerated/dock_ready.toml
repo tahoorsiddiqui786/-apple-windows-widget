@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-dock-ready"
+description = "Enables the dock_ready command without any pre-configured scope."
+commands.allow = ["dock_ready"]
+
+[[permission]]
+identifier = "deny-dock-ready"
+description = "Denies the dock_ready command without any pre-configured scope."
+commands.deny = ["dock_ready"]

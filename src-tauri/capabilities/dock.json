@@ -1,0 +1,19 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dock",
+  "description": "Least-privilege permissions for the dock window: read its own state, launch configured items by id, and adjust its own hit-test region. No filesystem, shell, HTTP or window-management plugins are enabled.",
+  "local": true,
+  "windows": ["dock"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-get-dock-state",
+    "allow-dock-ready",
+    "allow-launch-item",
+    "allow-reveal-item",
+    "allow-set-dock-interactive",
+    "allow-set-backdrop-extent",
+    "allow-hide-dock",
+    "allow-open-config"
+  ]
+}
