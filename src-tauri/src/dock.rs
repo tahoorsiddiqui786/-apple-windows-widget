@@ -4,6 +4,7 @@
 //! Threading: window operations run on the main (UI) thread. Commands that do
 //! blocking shell work (icon extraction, launching) run on worker threads.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
@@ -13,7 +14,10 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::config::{self, state::RuntimeState, AppConfig, Appearance, Backdrop, DockConfig, DockItem};
 use crate::layout::{self, Layout};
 use crate::native::backdrop::{self, BlurKind, NativeEvent};
-use crate::native::{appbar, com::ComGuard, hotkey, hwnd_from_isize, hwnd_to_isize, monitor, system_prefs, window_style};
+use crate::native::{
+    app_windows, appbar, com::ComGuard, hotkey, hwnd_from_isize, hwnd_to_isize, monitor, system_prefs, window_style,
+};
+use crate::running::{self, ItemMatcher};
 use crate::{icons, launcher, tray};
 
 pub const DOCK_LABEL: &str = "dock";
@@ -34,6 +38,17 @@ const WEBVIEW2_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScree
 --no-first-run";
 pub const EVT_STATE_CHANGED: &str = "dock://state-changed";
 pub const EVT_LAYOUT_CHANGED: &str = "dock://layout-changed";
+pub const EVT_RUNNING_CHANGED: &str = "dock://running-changed";
+
+/// One open window of a dock app, for the right-click menu.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowEntry {
+    /// Opaque token; only accepted back if it still belongs to the same app.
+    pub handle: String,
+    pub title: String,
+    pub minimized: bool,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +72,8 @@ pub struct DockState {
     pub items: Vec<ItemView>,
     pub warnings: Vec<String>,
     pub hotkey: String,
+    /// Open window count per item id (items with no windows are absent).
+    pub running: BTreeMap<String, u32>,
 }
 
 pub struct Dock {
@@ -82,6 +99,10 @@ struct Inner {
     hotkey_registered: bool,
     hotkey_error: Option<String>,
     appbar_registered: bool,
+    shell_hook: bool,
+    matchers: Vec<ItemMatcher>,
+    /// Item id -> its open windows (HWNDs), most recently used first.
+    running: BTreeMap<String, Vec<isize>>,
 }
 
 impl Dock {
@@ -129,6 +150,7 @@ impl Inner {
             items,
             warnings: self.warnings(),
             hotkey: if self.hotkey_registered { self.config.behavior.toggle_hotkey.clone() } else { String::new() },
+            running: running::counts(&self.running),
         }
     }
 }
@@ -203,6 +225,9 @@ pub fn init(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             hotkey_registered: false,
             hotkey_error: None,
             appbar_registered: false,
+            shell_hook: false,
+            matchers: Vec::new(),
+            running: BTreeMap::new(),
         }),
     });
 
@@ -212,6 +237,10 @@ pub fn init(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     apply_geometry(&inner);
     register_hotkey(&mut inner);
     sync_appbar(&mut inner);
+    inner.shell_hook = backdrop::enable_shell_hook(backdrop_hwnd);
+    if !inner.shell_hook {
+        eprintln!("[running] shell hook unavailable; open-app indicators will not update.");
+    }
     Ok(())
 }
 
@@ -224,6 +253,9 @@ pub fn shutdown(app: &AppHandle) {
     }
     if inner.appbar_registered {
         appbar::unregister(a);
+    }
+    if inner.shell_hook {
+        backdrop::disable_shell_hook(a);
     }
     backdrop::destroy(a);
 }
@@ -242,9 +274,14 @@ pub async fn get_state(app: AppHandle) -> Result<DockState, String> {
         (inner.config.items.clone(), inner.icons_dir(), inner.generation)
     };
 
-    let (items, warnings) = tauri::async_runtime::spawn_blocking(move || resolve_items(&items_cfg, &icons_dir))
-        .await
-        .map_err(|e| e.to_string())?;
+    let (items, warnings, matchers, running) = tauri::async_runtime::spawn_blocking(move || {
+        let (items, warnings, matchers) = resolve_items(&items_cfg, &icons_dir);
+        let _com = ComGuard::new();
+        let running = running::group(&matchers, &app_windows::enumerate());
+        (items, warnings, matchers, running)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     let state = {
         let dock = app.state::<Dock>();
@@ -257,6 +294,8 @@ pub async fn get_state(app: AppHandle) -> Result<DockState, String> {
         }
         inner.item_warnings = warnings;
         inner.items = Some(items.clone());
+        inner.matchers = matchers;
+        inner.running = running;
         inner.layout = layout::compute(&inner.config.dock, items.len(), monitor::primary_work_area());
         inner.state(items)
     };
@@ -271,10 +310,11 @@ pub async fn get_state(app: AppHandle) -> Result<DockState, String> {
     Ok(state)
 }
 
-fn resolve_items(items: &[DockItem], icons_dir: &Path) -> (Vec<ItemView>, Vec<String>) {
+fn resolve_items(items: &[DockItem], icons_dir: &Path) -> (Vec<ItemView>, Vec<String>, Vec<ItemMatcher>) {
     let _com = ComGuard::new();
     let mut out = Vec::with_capacity(items.len());
     let mut warnings = Vec::new();
+    let mut matchers = Vec::with_capacity(items.len());
     for item in items {
         let validated = match launcher::validate(&item.target) {
             Ok(v) => v,
@@ -293,6 +333,7 @@ fn resolve_items(items: &[DockItem], icons_dir: &Path) -> (Vec<ItemView>, Vec<St
                 .map_err(|e| warnings.push(format!("\"{}\": no Windows icon ({e}).", item.label)))
                 .ok()
         });
+        matchers.push(running::matcher_for(&item.id, &validated));
         out.push(ItemView {
             id: item.id.clone(),
             label: item.label.clone(),
@@ -301,7 +342,77 @@ fn resolve_items(items: &[DockItem], icons_dir: &Path) -> (Vec<ItemView>, Vec<St
             can_reveal: validated.reveal_path().is_some(),
         });
     }
-    (out, warnings)
+    (out, warnings, matchers)
+}
+
+// ---------------------------------------------------------------- open-app tracking
+
+/// Re-scans app windows (main thread, after a debounced shell-hook event) and
+/// tells the UI when any item's open-window count changed.
+fn refresh_running(app: &AppHandle) {
+    let counts = {
+        let dock = app.state::<Dock>();
+        let mut inner = dock.lock();
+        if inner.matchers.is_empty() {
+            return;
+        }
+        let next = running::group(&inner.matchers, &app_windows::enumerate());
+        let changed = running::counts(&next) != running::counts(&inner.running);
+        inner.running = next;
+        changed.then(|| running::counts(&inner.running))
+    };
+    if let Some(counts) = counts {
+        let _ = app.emit_to(DOCK_LABEL, EVT_RUNNING_CHANGED, counts);
+    }
+}
+
+fn windows_of(app: &AppHandle, id: &str) -> Vec<isize> {
+    let dock = app.state::<Dock>();
+    let inner = dock.lock();
+    inner.running.get(id).cloned().unwrap_or_default()
+}
+
+/// Click on a dock icon: switch to the app if it is open (cycling through its
+/// windows when it is already in front), otherwise launch it.
+/// Returns "focused" or "launched".
+pub async fn activate(app: AppHandle, id: String) -> Result<&'static str, String> {
+    if !config::is_valid_item_id(&id) {
+        return Err("Invalid item id.".into());
+    }
+    let live: Vec<isize> =
+        windows_of(&app, &id).into_iter().filter(|&h| app_windows::is_live(hwnd_from_isize(h))).collect();
+    if !live.is_empty() {
+        if let Some(target) = running::window_to_activate(&live, app_windows::foreground()) {
+            app_windows::focus(hwnd_from_isize(target))?;
+        }
+        return Ok("focused");
+    }
+    launch(app, id).await.map(|_| "launched")
+}
+
+/// Titles of an app's open windows, read now (for the right-click menu only).
+pub fn list_windows(app: &AppHandle, id: &str) -> Vec<WindowEntry> {
+    refresh_running(app);
+    windows_of(app, id)
+        .into_iter()
+        .map(hwnd_from_isize)
+        .filter(|&h| app_windows::is_live(h))
+        .map(|h| WindowEntry {
+            handle: (h.0 as isize).to_string(),
+            title: app_windows::title(h),
+            minimized: app_windows::is_minimized(h),
+        })
+        .collect()
+}
+
+/// Brings one listed window forward. The handle must still belong to `id`,
+/// so the UI cannot use this to focus arbitrary windows.
+pub fn focus_window(app: &AppHandle, id: &str, handle: &str) -> Result<(), String> {
+    let raw: isize = handle.parse().map_err(|_| "Invalid window.".to_string())?;
+    if !windows_of(app, id).contains(&raw) {
+        return Err("That window is no longer open.".into());
+    }
+    app_windows::focus(hwnd_from_isize(raw))
 }
 
 // ---------------------------------------------------------------- actions
@@ -445,6 +556,8 @@ pub fn reload(app: &AppHandle) {
         inner.config_warnings = loaded.warnings;
         inner.items = None;
         inner.item_warnings.clear();
+        inner.matchers.clear();
+        inner.running.clear();
         inner.generation += 1;
         inner.extent = (0.0, 0.0);
         inner.interactive = false;
@@ -504,6 +617,7 @@ fn on_native_event(app: &AppHandle, ev: NativeEvent) {
             inner.appbar_registered = false;
             sync_appbar(&mut inner);
         }
+        NativeEvent::AppWindowsChanged => refresh_running(app),
     }
 }
 

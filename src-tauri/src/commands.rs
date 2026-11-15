@@ -7,7 +7,7 @@
 
 use tauri::AppHandle;
 
-use crate::dock::{self, DockState};
+use crate::dock::{self, DockState, WindowEntry};
 
 #[tauri::command]
 pub async fn get_dock_state(app: AppHandle) -> Result<DockState, String> {
@@ -28,6 +28,26 @@ pub async fn launch_item(app: AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn reveal_item(app: AppHandle, id: String) -> Result<(), String> {
     dock::reveal(app, id).await
+}
+
+/// Click on an icon: switch to the app if it is open, otherwise launch it.
+/// Returns "focused" or "launched".
+#[tauri::command]
+pub async fn activate_item(app: AppHandle, id: String) -> Result<&'static str, String> {
+    dock::activate(app, id).await
+}
+
+/// Titles of an app's open windows, for its right-click menu. Read at call
+/// time only; never stored.
+#[tauri::command]
+pub fn list_item_windows(app: AppHandle, id: String) -> Vec<WindowEntry> {
+    dock::list_windows(&app, &id)
+}
+
+/// Brings one of an app's listed windows to the front.
+#[tauri::command]
+pub fn focus_item_window(app: AppHandle, id: String, handle: String) -> Result<(), String> {
+    dock::focus_window(&app, &id, &handle)
 }
 
 /// `true` while the pointer is over the dock: the whole dock window becomes

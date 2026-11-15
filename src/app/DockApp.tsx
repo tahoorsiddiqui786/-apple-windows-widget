@@ -34,12 +34,14 @@ export function DockApp() {
       const ipc = await getIpc();
       const offState = await ipc.onStateChanged(() => void load(ipc));
       const offLayout = await ipc.onLayoutChanged((layout) => setState((s) => (s ? { ...s, layout } : s)));
+      const offRunning = await ipc.onRunningChanged((running) => setState((s) => (s ? { ...s, running } : s)));
       if (disposed) {
         offState();
         offLayout();
+        offRunning();
         return;
       }
-      unlisten.push(offState, offLayout);
+      unlisten.push(offState, offLayout, offRunning);
       setIpc(ipc);
       await load(ipc);
     })();

@@ -12,8 +12,9 @@ telemetry, crash reporting, ads or auto-updater.
   exception the app doesn't control.
 * No remote scripts, fonts or images. Everything is bundled. The CSP allows
   only `'self'` scripts, plus `data:` images for icons.
-* It does not read window titles, browsing history, running processes,
-  other apps' windows, the clipboard or keystrokes.
+* It does not read browsing history, the clipboard or keystrokes. Open
+  windows are looked at only as described under
+  [Open-app indicators](#open-app-indicators-approved-2026-11-16).
 * No background services, scheduled tasks, drivers or elevated helpers. It
   never asks for administrator rights.
 * It never runs a shell (`cmd.exe`, PowerShell) and never builds command
@@ -29,6 +30,25 @@ telemetry, crash reporting, ads or auto-updater.
 | `HKCU\…\CurrentVersion\Run` value `Glass Desktop` | your user registry | **Only** if you tick *Launch at Sign-in* in the tray. Removed when you untick it. |
 | `HKCU\…\Themes\Personalize\EnableTransparency` | read-only | Opt-in native blur follows your *Transparency effects* setting. |
 | Start-menu app list (Apps folder) | read-only | Resolves the app IDs **you configured** and their icons. It doesn't enumerate or store anything else. |
+
+### Open-app indicators (approved 2026-11-16)
+
+The dock shows a dot under apps that are open, switches to an open app when
+you click it, and lists an app's windows in its right-click menu. You
+approved this explicitly; the scope is:
+
+| What | When | Kept? |
+|---|---|---|
+| Which top-level app windows exist, the way the taskbar sees them (visible, not cloaked, unowned, not tool windows) | When Windows reports a window opened, closed or was activated (`RegisterShellHookWindow`, debounced 120 ms). No polling | Only window handles, in memory, **for apps in your dock**. Everything else is discarded immediately |
+| Which app a window belongs to: its AppUserModelID (window property, or the package ID for Store apps) or its executable path | Same | Used only to match against your dock items; not stored |
+| **Window titles** | **Only when you right-click an app** in the dock, for that app's windows | No. Shown in the menu, never written to disk, logged or sent |
+
+The dock never reads window contents or screenshots, browser tabs or URLs,
+or anything about apps that aren't in your dock. Windows on other virtual
+desktops are not counted. Switching uses `SetForegroundWindow` on a window
+that still belongs to the clicked app. The webview can't name arbitrary
+windows: it gets back opaque handles that Rust re-checks against that app's
+current window list.
 
 ### Fullscreen detection
 
@@ -47,7 +67,7 @@ not a keyboard hook and sees no other keys.
 
 ## Security model
 
-* **Least-privilege IPC.** The webview can call only eight app commands
+* **Least-privilege IPC.** The webview can call only eleven app commands
   (declared in `src-tauri/build.rs`, granted in
   `src-tauri/capabilities/dock.json`) plus event listen/unlisten. No Tauri
   plugins are enabled: no `fs`, `shell`, `http`, `opener` or `process`. The

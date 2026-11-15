@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-list-item-windows"
+description = "Enables the list_item_windows command without any pre-configured scope."
+commands.allow = ["list_item_windows"]
+
+[[permission]]
+identifier = "deny-list-item-windows"
+description = "Denies the list_item_windows command without any pre-configured scope."
+commands.deny = ["list_item_windows"]

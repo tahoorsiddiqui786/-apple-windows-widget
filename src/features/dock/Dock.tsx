@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { DockIpc } from "../../lib/ipc";
-import type { DockState } from "../../lib/types";
+import type { DockState, WindowEntry } from "../../lib/types";
 import { fadeTransition, labelVariants } from "../../animation/transitions";
 import { MagnifyEngine } from "./magnifyEngine";
 import { DockItem } from "./DockItem";
@@ -23,8 +23,11 @@ function errorText(err: unknown): string {
 }
 
 export function Dock({ state, ipc }: Props) {
-  const { layout, dock, appearance, items, hotkey } = state;
+  const { layout, dock, appearance, items, hotkey, running } = state;
   const speed = Math.max(0.25, appearance.animationSpeed);
+  // Read inside stable callbacks without re-creating them (keeps DockItem memoized).
+  const runningRef = useRef(running);
+  runningRef.current = running;
 
   const barRef = useRef<HTMLDivElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
@@ -42,6 +45,8 @@ export function Dock({ state, ipc }: Props) {
   const [bouncing, setBouncing] = useState<ReadonlySet<string>>(() => new Set());
   const [shaking, setShaking] = useState<string | null>(null);
   const [error, setError] = useState<{ index: number; message: string } | null>(null);
+  const [menuWindows, setMenuWindows] = useState<WindowEntry[] | null>(null);
+  const menuRequest = useRef(0);
 
   const later = useCallback((fn: () => void, ms: number) => {
     const id = window.setTimeout(() => {
@@ -173,8 +178,9 @@ export function Dock({ state, ipc }: Props) {
     [later],
   );
 
-  const launch = useCallback(
-    (id: string) => {
+  /** Bounces the icon while `task` (a launch) runs; shakes and explains on failure. */
+  const bounceWhile = useCallback(
+    (id: string, task: () => Promise<unknown>) => {
       if (bouncingRef.current.has(id)) return;
       const index = items.findIndex((i) => i.id === id);
       const label = items[index]?.label ?? id;
@@ -191,14 +197,30 @@ export function Dock({ state, ipc }: Props) {
         release?.();
       };
       const timer = later(finish, BOUNCE_MS / speed);
-      ipc.launchItem(id).catch((err: unknown) => {
+      task().catch((err: unknown) => {
         window.clearTimeout(timer);
         timers.current.delete(timer);
         finish();
         showError(index, id, `Couldn't open ${label}. ${errorText(err)}`);
       });
     },
-    [ipc, items, later, showError, speed],
+    [items, later, showError, speed],
+  );
+
+  /** Always opens a new instance/window (Shift+click, middle-click, menu). */
+  const launch = useCallback((id: string) => bounceWhile(id, () => ipc.launchItem(id)), [bounceWhile, ipc]);
+
+  /** Plain click: switch to the app if it is open, otherwise launch it. */
+  const open = useCallback(
+    (id: string, newWindow: boolean) => {
+      if (newWindow) return launch(id);
+      if (!runningRef.current[id]) return bounceWhile(id, () => ipc.activateItem(id));
+      ipc.activateItem(id).catch((err: unknown) => {
+        const index = items.findIndex((i) => i.id === id);
+        showError(index, id, errorText(err));
+      });
+    },
+    [bounceWhile, ipc, items, launch, showError],
   );
 
   const openMenu = useCallback(
@@ -213,14 +235,26 @@ export function Dock({ state, ipc }: Props) {
       menuRelease.current?.();
       menuRelease.current = engine.hold();
       const box = engine.iconBox(index);
+      const item = index >= 0 ? (items[index] ?? null) : null;
       setError(null);
       setMenu({
-        item: index >= 0 ? (items[index] ?? null) : null,
+        item,
         x: box ? box.cx : e.clientX,
         bottom: (box ? box.top : layout.barTop) - 10,
       });
+      // Window titles are read only now, for this menu, and never kept.
+      const request = ++menuRequest.current;
+      setMenuWindows(null);
+      if (item && runningRef.current[item.id]) {
+        ipc
+          .listItemWindows(item.id)
+          .catch(() => [])
+          .then((list) => {
+            if (menuRequest.current === request) setMenuWindows(list);
+          });
+      }
     },
-    [items, layout.barTop],
+    [ipc, items, layout.barTop],
   );
 
   const hideDock = useCallback(() => {
@@ -249,11 +283,12 @@ export function Dock({ state, ipc }: Props) {
           key={item.id}
           item={item}
           index={i}
+          running={running[item.id] ?? 0}
           bouncing={bouncing.has(item.id)}
           shaking={shaking === item.id}
           speed={speed}
           setRef={setItemRef}
-          onLaunch={launch}
+          onOpen={open}
         />
       ))}
 
@@ -285,7 +320,11 @@ export function Dock({ state, ipc }: Props) {
             viewportWidth={layout.width}
             hotkey={hotkey}
             speed={speed}
-            onOpen={launch}
+            windows={menuWindows}
+            running={menu.item ? (running[menu.item.id] ?? 0) : 0}
+            onOpen={(id) => open(id, false)}
+            onNewWindow={launch}
+            onFocusWindow={(id, handle) => void ipc.focusItemWindow(id, handle).catch(reportFailure(id))}
             onReveal={(id) => void ipc.revealItem(id).catch(reportFailure(id))}
             onHide={hideDock}
             onEditConfig={() => void ipc.openConfig()}

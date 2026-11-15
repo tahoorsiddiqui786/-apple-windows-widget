@@ -1,6 +1,7 @@
 //! Thin, audited wrappers over the Win32 APIs the dock needs. Everything
 //! Windows-specific lives here so the rest of the app stays declarative.
 
+pub mod app_windows;
 pub mod appbar;
 pub mod autostart;
 pub mod backdrop;

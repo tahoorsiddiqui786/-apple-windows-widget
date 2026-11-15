@@ -14,7 +14,14 @@ click-to-launch, a right-click menu, a tray menu and a local JSON config.
 > * click-to-launch works, and the launched app takes focus while the dock
 >   never does;
 > * empty space around the dock passes clicks through to the app behind it;
-> * idle CPU is about 0.01 % of the whole CPU.
+> * idle CPU is about 0.01 % of the whole CPU;
+> * open-app dots, click-to-switch, click-again-to-cycle and the right-click
+>   window list work with real Edge windows;
+> * `Ctrl+Alt+D` hides and shows the dock, the choice survives restarts, and a
+>   second launch hands over to the running dock.
+>
+> Not yet verified: the tray menu items, Launch at Sign-in, and hiding during
+> fullscreen apps.
 >
 > On that PC Windows doesn't render DWM blur, so the dock draws its own glass
 > by default. See [docs/NATIVE_BLUR.md](docs/NATIVE_BLUR.md).
@@ -26,8 +33,13 @@ click-to-launch, a right-click menu, a tray menu and a local JSON config.
   an opt-in where Windows renders it. See [docs/NATIVE_BLUR.md](docs/NATIVE_BLUR.md).
 * Hover magnification that keeps the icon under your cursor in place. The
   animation runs only while moving: zero CPU at rest.
-* Click to launch, with a bounce. A launch error appears above the icon.
-* Right-click menu: Open, Show in File Explorer, Hide Dock, Edit Dock Settings.
+* A glowing dot under every open app. Clicking an open app brings its window
+  to the front, and clicking again cycles through its windows. Clicking an app
+  that isn't open launches it, with a bounce. Shift+click or middle-click
+  always opens a new window. Launch errors appear above the icon.
+* Right-click menu: the app's open windows (pick one to jump to it), New
+  Window or Open, Show in File Explorer, Hide Dock, Edit Dock Settings.
+  Window titles are read only when that menu opens. See [docs/PRIVACY.md](docs/PRIVACY.md).
 * Never steals focus; clicks outside the glass go straight to the apps below.
 * Steps aside for fullscreen games, videos and presentations.
 * Tray menu: show/hide (or `Ctrl+Alt+D`), edit/reload config, open assets
@@ -40,8 +52,9 @@ click-to-launch, a right-click menu, a tray menu and a local JSON config.
 ## Privacy
 
 No telemetry, no analytics, no accounts, no admin rights, no shell, and no
-network code in the app. The webview can call only 8 narrowly scoped
-commands. One caveat, measured and documented: Microsoft's WebView2 runtime,
+network code in the app. The webview can call only 11 narrowly scoped
+commands. Open-app dots look at window handles only, and read titles only
+when you open an app's menu. One caveat, measured and documented: Microsoft's WebView2 runtime,
 which renders the UI, keeps one connection to Microsoft at start-up, even with
 its background services switched off. Details:
 [docs/PRIVACY.md](docs/PRIVACY.md).

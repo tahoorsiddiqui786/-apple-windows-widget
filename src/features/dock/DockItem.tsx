@@ -1,34 +1,54 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, type MouseEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { DockItemView } from "../../lib/types";
-import { badgeVariants, popTransition } from "../../animation/transitions";
+import { badgeVariants, fadeTransition, popTransition } from "../../animation/transitions";
 
 interface Props {
   item: DockItemView;
   index: number;
+  /** Number of open windows (0 = not running). */
+  running: number;
   bouncing: boolean;
   shaking: boolean;
   speed: number;
   setRef(index: number, el: HTMLDivElement | null): void;
-  onLaunch(id: string): void;
+  /** `newWindow`: Shift+click or middle-click always opens a new window. */
+  onOpen(id: string, newWindow: boolean): void;
 }
 
-export const DockItem = memo(function DockItem({ item, index, bouncing, shaking, speed, setRef, onLaunch }: Props) {
+export const DockItem = memo(function DockItem(props: Props) {
+  const { item, index, running, bouncing, shaking, speed, setRef, onOpen } = props;
   const ref = useCallback((el: HTMLDivElement | null) => setRef(index, el), [index, setRef]);
   const body = ["dock-item__body", bouncing && "is-bouncing", shaking && "is-shaking"].filter(Boolean).join(" ");
+  const onClick = (e: MouseEvent) => onOpen(item.id, e.shiftKey);
+  const onAuxClick = (e: MouseEvent) => {
+    if (e.button === 1) onOpen(item.id, true);
+  };
   return (
     <div
       ref={ref}
       className="dock-item"
       data-item-id={item.id}
       role="button"
-      aria-label={item.label}
-      onClick={() => onLaunch(item.id)}
+      aria-label={running > 0 ? `${item.label} (open)` : item.label}
+      onClick={onClick}
+      onAuxClick={onAuxClick}
+      onMouseDown={(e) => e.button === 1 && e.preventDefault() /* no autoscroll cursor */}
     >
       <div className={body}>
         {item.icon ? <img src={item.icon} alt="" draggable={false} decoding="async" /> : <Monogram label={item.label} />}
       </div>
       <AnimatePresence>
+        {running > 0 && (
+          <motion.span
+            key="dot"
+            className="dock-dot"
+            initial={{ opacity: 0, scale: 0.3 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.3 }}
+            transition={fadeTransition(speed)}
+          />
+        )}
         {item.badge && (
           <motion.span
             key="badge"

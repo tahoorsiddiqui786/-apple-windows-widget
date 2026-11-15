@@ -17,6 +17,7 @@ mod icons;
 mod launcher;
 mod layout;
 mod native;
+mod running;
 mod tray;
 
 pub fn run() {
@@ -32,6 +33,9 @@ pub fn run() {
             commands::dock_ready,
             commands::launch_item,
             commands::reveal_item,
+            commands::activate_item,
+            commands::list_item_windows,
+            commands::focus_item_window,
             commands::set_dock_interactive,
             commands::set_backdrop_extent,
             commands::hide_dock,

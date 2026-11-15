@@ -2,7 +2,7 @@
 // Tauri. It never launches anything; it only logs what would happen.
 
 import type { DockIpc } from "./ipc";
-import type { DockState } from "./types";
+import type { DockState, WindowEntry } from "./types";
 
 const ICON = 52;
 const GAP = 10;
@@ -64,8 +64,19 @@ function previewState(): DockState {
     })),
     warnings: [],
     hotkey: "Ctrl+Alt+D",
+    running: { ...previewRunning },
   };
 }
+
+// Pretend Edge has two windows and Terminal one.
+const previewRunning: Record<string, number> = { "microsoft-edge": 2, terminal: 1 };
+const previewWindows: Record<string, WindowEntry[]> = {
+  "microsoft-edge": [
+    { handle: "1", title: "Glass Desktop — README — Microsoft Edge", minimized: false },
+    { handle: "2", title: "New tab — Microsoft Edge", minimized: true },
+  ],
+  terminal: [{ handle: "3", title: "Windows PowerShell", minimized: false }],
+};
 
 const log = (...args: unknown[]) => console.info("[preview ipc]", ...args);
 
@@ -76,6 +87,17 @@ export const previewIpc: DockIpc = {
     log("launch_item", id);
     if (id === "settings") throw new Error("Preview: simulated launch failure");
   },
+  activateItem: async (id) => {
+    if (previewRunning[id]) {
+      log("activate_item → focused", id);
+      return "focused";
+    }
+    log("activate_item → launched", id);
+    if (id === "settings") throw new Error("Preview: simulated launch failure");
+    return "launched";
+  },
+  listItemWindows: async (id) => previewWindows[id] ?? [],
+  focusItemWindow: async (id, handle) => log("focus_item_window", id, handle),
   revealItem: async (id) => log("reveal_item", id),
   setDockInteractive: async (expanded) => log("set_dock_interactive", expanded),
   setBackdropExtent: async () => {},
@@ -83,4 +105,5 @@ export const previewIpc: DockIpc = {
   openConfig: async () => log("open_config"),
   onStateChanged: async () => () => {},
   onLayoutChanged: async () => () => {},
+  onRunningChanged: async () => () => {},
 };

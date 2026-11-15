@@ -35,10 +35,11 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, FillRect, GetStockObject, BLACK_BRUSH, HBRUSH, PAINTSTRUCT};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, LoadCursorW, RegisterClassExW, RegisterWindowMessageW,
-    CS_HREDRAW, CS_VREDRAW, HTTRANSPARENT, IDC_ARROW, MA_NOACTIVATE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED,
-    WM_ERASEBKGND, WM_HOTKEY, WM_MOUSEACTIVATE, WM_NCHITTEST, WM_PAINT, WM_SETTINGCHANGE, WNDCLASSEXW,
-    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DeregisterShellHookWindow, DestroyWindow, KillTimer, LoadCursorW,
+    RegisterClassExW, RegisterShellHookWindow, RegisterWindowMessageW, SetTimer, CS_HREDRAW, CS_VREDRAW,
+    HTTRANSPARENT, IDC_ARROW, MA_NOACTIVATE, WM_APP, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_HOTKEY,
+    WM_MOUSEACTIVATE, WM_NCHITTEST, WM_PAINT, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 pub const CLASS_NAME: windows::core::PCWSTR = w!("GlassDesktop.DockBackdrop");
@@ -56,10 +57,30 @@ pub enum NativeEvent {
     Fullscreen(bool),
     DisplayChanged,
     ExplorerRestarted,
+    /// An app window opened, closed or was activated (debounced).
+    AppWindowsChanged,
 }
 
 static HANDLER: OnceLock<Box<dyn Fn(NativeEvent) + Send + Sync>> = OnceLock::new();
 static TASKBAR_CREATED: OnceLock<u32> = OnceLock::new();
+static SHELLHOOK: OnceLock<u32> = OnceLock::new();
+const APP_WINDOWS_TIMER: usize = 0x6D0C;
+const APP_WINDOWS_DEBOUNCE_MS: u32 = 120;
+
+/// Subscribes to the shell's window notifications (created / destroyed /
+/// activated). Only window handles arrive; no titles or content.
+pub fn enable_shell_hook(hwnd: HWND) -> bool {
+    unsafe {
+        let _ = SHELLHOOK.set(RegisterWindowMessageW(w!("SHELLHOOK")));
+        RegisterShellHookWindow(hwnd).as_bool()
+    }
+}
+
+pub fn disable_shell_hook(hwnd: HWND) {
+    unsafe {
+        let _ = DeregisterShellHookWindow(hwnd);
+    }
+}
 
 /// Installs the callback for [`NativeEvent`]s. Call once before `create`.
 pub fn set_event_handler(handler: impl Fn(NativeEvent) + Send + Sync + 'static) {
@@ -243,6 +264,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         }
         _ if Some(&msg) == TASKBAR_CREATED.get() => {
             emit(NativeEvent::ExplorerRestarted);
+            LRESULT(0)
+        }
+        _ if Some(&msg) == SHELLHOOK.get() => {
+            // HSHELL_WINDOWCREATED 1, WINDOWDESTROYED 2, WINDOWACTIVATED 4
+            // (0x8004 = "rude" activation), WINDOWREPLACED 13.
+            if matches!(wparam.0 & 0x7FFF, 1 | 2 | 4 | 13) {
+                // Restarting the timer coalesces bursts into one refresh.
+                SetTimer(Some(hwnd), APP_WINDOWS_TIMER, APP_WINDOWS_DEBOUNCE_MS, None);
+            }
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == APP_WINDOWS_TIMER => {
+            let _ = KillTimer(Some(hwnd), APP_WINDOWS_TIMER);
+            emit(NativeEvent::AppWindowsChanged);
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),

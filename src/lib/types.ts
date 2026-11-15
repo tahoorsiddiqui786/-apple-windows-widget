@@ -55,4 +55,16 @@ export interface DockState {
   items: DockItemView[];
   warnings: string[];
   hotkey: string;
+  /** Open window count per item id; items with no open windows are absent. */
+  running: Record<string, number>;
 }
+
+/** One open window of a dock app (right-click menu). */
+export interface WindowEntry {
+  /** Opaque token, only valid for the same item. */
+  handle: string;
+  title: string;
+  minimized: boolean;
+}
+
+export type ActivateResult = "focused" | "launched";

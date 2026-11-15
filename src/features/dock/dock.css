@@ -160,6 +160,22 @@
   line-height: 1;
 }
 
+/* "This app is open" indicator, sitting in the bar's bottom padding. */
+.dock-dot {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow:
+    0 0 4px rgb(var(--accent-rgb) / 0.95),
+    0 0 9px rgb(var(--accent-rgb) / 0.55);
+  pointer-events: none;
+}
+
 .dock-badge {
   position: absolute;
   top: -3px;
@@ -223,12 +239,11 @@
 
 .dock-menu-anchor {
   position: absolute;
-  width: 216px;
   transform: translateY(-100%);
 }
 
 .dock-menu {
-  width: 216px;
+  width: 100%;
   padding: 5px;
   border-radius: 12px;
   background: var(--popover-bg);
@@ -277,6 +292,33 @@
 
 .dock-menu__item:hover .dock-menu__hint {
   color: rgb(255 255 255 / 0.8);
+}
+
+.dock-menu__windows {
+  display: flex;
+  flex-direction: column;
+}
+
+.dock-menu__window {
+  gap: 10px;
+}
+
+.dock-menu__window-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-menu__window .dock-menu__hint {
+  flex: none;
+}
+
+.dock-menu__loading {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .dock-menu__sep {
