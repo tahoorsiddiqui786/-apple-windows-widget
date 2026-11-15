@@ -12,6 +12,9 @@ src-tauri/gen/schemas/
 Thumbs.db
 desktop.ini
 
+# byte-identical copies found during icon import (kept on disk only)
+assets/icons/_duplicates/
+
 # local env
 .env
 .env.*

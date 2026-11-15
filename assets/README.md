@@ -33,6 +33,19 @@ All lowercase, words joined with `-`, no spaces.
   3840×2160), JPG quality 90 or PNG. Dark, low-contrast centres make the glass
   read best.
 
+## Icons saved as JPEG (no transparency)
+
+Images sent through WhatsApp or saved as JPEG lose transparency: the glass
+tile sits on a white or black square. Keep those JPEGs in
+`icons/originals/` and cut them into transparent PNGs:
+
+```
+powershell -ExecutionPolicy Bypass -File tools\icons\cut-all.ps1 -Icons assets\icons\originals -OutDir assets\icons
+```
+
+`icons/` then holds 512×512 PNGs with the same names. `icons/_duplicates/`
+holds byte-identical copies found during import; they're safe to delete.
+
 ## Using your icons in the dock
 
 The running app reads icons from its **assets folder** (tray › *Open Assets
