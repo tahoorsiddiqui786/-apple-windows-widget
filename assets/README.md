@@ -53,7 +53,7 @@ Folder*), by default `%APPDATA%\com.glassdesktop.shell\assets\icons\`. Either:
 
 1. copy files there and reference them by name: `"icon": "app-spotify.png"`, or
 2. point the app at this folder in `config.json`:
-   `"paths": { "assetsDir": "C:\\Users\\<you>\\Desktop\\projects\\apple_to_windows_widgets\\assets" }`.
+   `"paths": { "assetsDir": "C:\\Users\\<you>\\Desktop\\projects\\apple-windows-widget\\assets" }`.
 
 Wallpaper management arrives in a later milestone and will use
 `<assetsDir>\wallpapers\` the same way.
